@@ -67,35 +67,86 @@ def rrt_planner(rrt_dubins, display_map=False):
         NOTE: In order for rrt_dubins.draw_graph function to work properly, it is important
         to populate rrt_dubins.nodes_list with all valid RRT nodes.
     """
+
+    # get alpha and beta parameters for beta distribution using mode and concentration
+    # omegax = (rrt_dubins.goal.x - rrt_dubins.x_lim[0]) / (rrt_dubins.x_lim[1] - rrt_dubins.x_lim[0])
+    # omegay = (rrt_dubins.goal.y - rrt_dubins.y_lim[0]) / (rrt_dubins.y_lim[1] - rrt_dubins.y_lim[0])
+    # omegayaw = rrt_dubins.goal.yaw / (2*np.pi)
+    # kappa = 7.0 # concentration, higher = more bias towards goal
+    # alphax = omegax * (kappa - 2) + 1
+    # alphay = omegay * (kappa - 2) + 1
+    # alphayaw = omegayaw * (kappa - 2) + 1
+    # betax = (1-omegax) * (kappa - 2) + 1
+    # betay = (1-omegay) * (kappa - 2) + 1
+    # betayaw = (1-omegayaw) * (kappa - 2) + 1
+
+    exploit_prob = 0.2 # probability of sampling goal itself
+    goal_dist = 0.5 # acceptable distance from goal
+
     # LOOP for max iterations
     i = 0
     while i < rrt_dubins.max_iter:
         i += 1
 
-        # Generate a random vehicle state (x, y, yaw)
+        # select goal node with probability of exploit_prob
+        if np.random.rand() < exploit_prob:
+            # exploit goal
+            rand_state = [rrt_dubins.goal.x, rrt_dubins.goal.y, rrt_dubins.goal.yaw]
+        else:
+            # explore random state
+            rand_state = [
+                np.random.uniform(low=rrt_dubins.x_lim[0], high=rrt_dubins.x_lim[1]),
+                np.random.uniform(low=rrt_dubins.y_lim[0], high=rrt_dubins.y_lim[1]),
+                np.random.uniform(low=0, high=2*np.pi)
+            ]
 
+        # generate random state from beta distribution
+        # rand_state = [
+        #     np.random.beta(alphax, betax) * (rrt_dubins.x_lim[1] - rrt_dubins.x_lim[0]) + rrt_dubins.x_lim[0],
+        #     np.random.beta(alphay, betay) * (rrt_dubins.y_lim[1] - rrt_dubins.y_lim[0]) + rrt_dubins.y_lim[0],
+        #     np.random.beta(alphayaw, betayaw) * 2*np.pi
+        # ]
 
-        
         # Find an existing node nearest to the random vehicle state
-        new_node = rrt_dubins.propogate(rrt_dubins.Node(0,0,0), rrt_dubins.Node(1,1,0)) #example of usage
+        shortest_dist = float('inf')
+        nearest_node = None
+        for node in rrt_dubins.node_list:
+
+            # _, _, _, _, dist = dubins_path_planning.dubins_path_planning(node.x, node.y, node.yaw, rand_state[0], 
+            #     rand_state[1], rand_state[2], rrt_dubins.curvature)
+
+            # omit sqrt because it's slow
+            dist = (node.x - rand_state[0])**2 + (node.y - rand_state[1])**2
+
+            if dist < shortest_dist:
+                nearest_node = node
+                shortest_dist = dist
+
+        if nearest_node is None:
+            print('why :(')
+        else:
+            new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state)) #example of usage
 
         # Check if the path between nearest node and random state has obstacle collision
         # Add the node to nodes_list if it is valid
         if rrt_dubins.check_collision(new_node):
             rrt_dubins.node_list.append(new_node) # Storing all valid nodes
 
-        # Draw current view of the map
-        # PRESS ESCAPE TO EXIT
-        if display_map:
-            rrt_dubins.draw_graph()
+            # Draw current view of the map
+            # PRESS ESCAPE TO EXIT
+            if display_map:
+                rrt_dubins.draw_graph()
 
-        # Check if new_node is close to goal
-        if True:
-            print("Iters:", i, ", number of nodes:", len(rrt_dubins.node_list))
-            break
+            # Check if new_node is close to goal
+            if rrt_dubins.calc_dist_to_goal(new_node.x, new_node.y) <= goal_dist:
+                print("Iters:", i, ", number of nodes:", len(rrt_dubins.node_list))
+                break
 
     if i == rrt_dubins.max_iter:
         print('reached max iterations')
-
-    # Return path, which is a list of nodes leading to the goal...
-    return None
+        return None
+    else:
+        path = [rrt_dubins.node_list[-1]]
+        while path[0].parent is not None:
+            path.insert(0, path[0].parent)
+        return path
