@@ -71,7 +71,7 @@ def rrt_star_planner(rrt_dubins, display_map=False):
 
     exploit_prob = 0.2 # probability of sampling goal itself
     goal_dist = 0.5 # acceptable distance from goal
-    neighbourhood_rad = 3 # neighbourhood radius
+    neighbourhood_rad = 5 # neighbourhood radius
     sqr_rad = neighbourhood_rad**2 # squared neighbourhood radius
     step_size = 4 * np.pi * rrt_dubins.curvature # max path length for each step
     sqr_step = step_size**2 # squared step size
@@ -131,9 +131,10 @@ def rrt_star_planner(rrt_dubins, display_map=False):
             # it has a collision, so continue to next iteration
             continue
 
-        # list of neighbouring nodes
-        neighbourhood = [node for node in rrt_dubins.node_list if node.parent is not None and 
-            (node.x - new_node.x)**2 + (node.y - new_node.y)**2 < sqr_rad]
+        # list of tuples: (index in node list, neighbour)
+        # we are storing the index for each neighbour as well to reduce complexity when rewiring
+        neighbourhood = [(i, node) for (i, node) in enumerate(rrt_dubins.node_list) 
+            if node.parent is not None and (node.x - new_node.x)**2 + (node.y - new_node.y)**2 < sqr_rad]
 
         rrt_dubins.node_list.append(new_node) # add new node to list
 
@@ -141,9 +142,9 @@ def rrt_star_planner(rrt_dubins, display_map=False):
         # initialize with connection to nearest node
         best_cost = rrt_dubins.calc_new_cost(nearest_node, new_node)
         best_neighbour = nearest_node
-        for neighbour in neighbourhood:
+        for _, neighbour in neighbourhood:
             # check for collision free path from neighbour to new node
-            temp_new_node = rrt_dubins.propogate(neighbour, new_node) # temporary, for collision checking
+            temp_new_node = rrt_dubins.propogate(neighbour, new_node) # temporary, for collision checking and cost calculation
             if rrt_dubins.check_collision(temp_new_node):
                 # if it's collision free, check if it's better to connect to this neighbour than the current best
                 if temp_new_node.cost < best_cost:
@@ -155,17 +156,12 @@ def rrt_star_planner(rrt_dubins, display_map=False):
         rrt_dubins.node_list[-1] = new_node
 
         # rewire the tree within neighbourhood, checking if the new node is a better parent for any of its neighbours
-        for neighbour in neighbourhood:
-            # check for collision free path from new node to neighbour
-            temp_neighbour = rrt_dubins.propogate(new_node, neighbour) # temporary, for collision checking
-            if rrt_dubins.check_collision(temp_neighbour):
-                # check if new node is a better parent for this neighbour
-                if temp_neighbour.cost < neighbour.cost:
-                    # rewire the neighbour by finding it in the node list and replacing it
-                    for i in range(len(rrt_dubins.node_list)):
-                        if rrt_dubins.node_list[i] == neighbour:
-                            rrt_dubins.node_list[i] = temp_neighbour
-                            break
+        for i, neighbour in neighbourhood:
+            # check for collision free path from new node to neighbour, and if the cost is better than the current
+            temp_neighbour = rrt_dubins.propogate(new_node, neighbour) # temporary, for collision checking and cost calculation
+            if temp_neighbour.cost < neighbour.cost and rrt_dubins.check_collision(temp_neighbour):
+                # rewire the neighbour by replacing it in the node list
+                rrt_dubins.node_list[i] = temp_neighbour
 
         # Draw current view of the map
         # PRESS ESCAPE TO EXIT
