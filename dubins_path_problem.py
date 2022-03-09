@@ -9,6 +9,7 @@ import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 
 try:
     import dubins_path_planning
@@ -299,7 +300,7 @@ def final_plot(rrt_dubins, path):
 def main():
     print("Executing: " + __file__)
 
-    np.random.seed(42) # set seed for reproducibility
+    np.random.seed(1) # set seed for reproducibility
 
     from_file = False
     if from_file:
@@ -310,60 +311,102 @@ def main():
 
     else:
         # ====Search Path with RRT====
-        # obstacleList = [
-        #     (5, 5, 1),
-        #     (3, 6, 2),
-        #     (3, 8, 2),
-        #     (3, 10, 2),
-        #     (7, 5, 2),
-        #     (9, 5, 2)
-        # ]  # [x,y,size(radius)]
+        obs = 3
+        if obs == 0:
+            obstacleList = [
+                (5, 5, 1),
+                (3, 6, 2),
+                (3, 8, 2),
+                (3, 10, 2),
+                (7, 5, 2),
+                (9, 5, 2)
+            ]  # [x,y,size(radius)]
 
-        obstacleList = [
-            (-3, 2.5, 1),
-            (-2, 2.5, 1),
-            (-1, 2.5, 1),
-            (0, 2.5, 1),
-            (1, 2.5, 1),
-            (2, 2.5, 1),
-            (3, 2.5, 1),
-            (4, 2.5, 1),
-            (5, 2.5, 1),
-            (6, 2.5, 1),
-            (7, 2.5, 1),
-            (13, -3, 1),
-            (13, -2, 1),
-            (13, -1, 1),
-            (13, 0, 1),
-            (13, 1, 1),
-            (13, 2, 1),
-            (13, 3, 1),
-            (13, 4, 1),
-            (13, 5, 1),
-            (13, 6, 1),
-            (12, 7.5, 1),
-            (11, 7.5, 1),
-            (10, 7.5, 1),
-            (9, 7.5, 1),
-            (8, 7.5, 1),
-            (7, 7.5, 1),
-            (6, 7.5, 1),
-            (5, 7.5, 1),
-            (4, 7.5, 1),
-            (3, 7.5, 1),
-            (2, 7.5, 1),
-            (6, 7.5, 1),
-            (6, 9, 1),
-            (6, 10, 1),
-            (6, 11, 1),
-            (6, 12, 1),
-        ]
+        elif obs == 1:
+            obstacleList = [
+                (-3, 2.5, 1),
+                (-2, 2.5, 1),
+                (-1, 2.5, 1),
+                (0, 2.5, 1),
+                (1, 2.5, 1),
+                (2, 2.5, 1),
+                (3, 2.5, 1),
+                (4, 2.5, 1),
+                (5, 2.5, 1),
+                (6, 2.5, 1),
+                (7, 2.5, 1),
+                (13, -3, 1),
+                (13, -2, 1),
+                (13, -1, 1),
+                (13, 0, 1),
+                (13, 1, 1),
+                (13, 2, 1),
+                (13, 3, 1),
+                (13, 4, 1),
+                (13, 5, 1),
+                (13, 6, 1),
+                (12, 7.5, 1),
+                (11, 7.5, 1),
+                (10, 7.5, 1),
+                (9, 7.5, 1),
+                (8, 7.5, 1),
+                (7, 7.5, 1),
+                (6, 7.5, 1),
+                (5, 7.5, 1),
+                (4, 7.5, 1),
+                (3, 7.5, 1),
+                (2, 7.5, 1),
+                (6, 7.5, 1),
+                (6, 9, 1),
+                (6, 10, 1),
+                (6, 11, 1),
+                (6, 12, 1),
+            ]
+
+        elif obs == 2:
+            obstacleList = [
+                (5, 5, 1),
+                (3, 6, 2),
+                (3, 8, 2),
+                (3, 10, 2),
+                (3, 11.5, 2),
+                (7, 5, 2),
+                (9, 5, 2),
+                (12, 5, 1.5)
+            ]
+
+        elif obs == 3:
+            obstacleList = [
+                (3, -3.5, 1),
+                (3, -2, 1),
+                (3, -0.5, 1),
+                (3, 1, 1),
+                (3, 2.5, 1),
+                (3, 4, 1),
+                (3, 5.5, 1),
+                (3, 7, 1),
+                (3, 8.5, 1),
+                (3, 10, 1),
+                (10, 17, 1),
+                (10, 15.5, 1),
+                (10, 14, 1),
+                (10, 12.5, 1),
+                (10, 11, 1),
+                (10, 9.5, 1),
+                (10, 8, 1),
+                (10, 6.5, 1),
+                (10, 5, 1),
+                (10, 3.5, 1),
+
+            ]
 
         # Set Initial parameters
-        start = [0.0, 0.0, np.deg2rad(-50.0)]
-        goal = [12.0, 12.0, np.deg2rad(50.0)]
+        start = [-1.0, -1.0, np.deg2rad(-50.0)]
+        goal = [13.0, 13.0, np.deg2rad(140.0)]
 
         n_sims = 1000
+
+        t0 = time.time()
 
         rrt_path_lengths = []
         for i in range(n_sims):
@@ -372,7 +415,7 @@ def main():
                                         map_area = [-2.0, 15.0, -2.0, 15.0], \
                                         max_iter=10_000)
 
-            path_node_list = rrt_dubins.rrt_planning(display_map=True)
+            path_node_list = rrt_dubins.rrt_planning(display_map=False)
             is_path_valid = check_path(rrt_dubins, path_node_list)
             path = get_path(path_node_list)
 
@@ -388,8 +431,10 @@ def main():
                 final_plot(rrt_dubins, path)
                 return
 
-            sys.stdout.write('\rRRT Progress: {:.2f}%'.format(i / n_sims * 100))
+            sys.stdout.write(f'\rRRT Progress: {i / n_sims * 100:.2f}%\tAveraging {i / (time.time() - t0):.2f} it/s')
             sys.stdout.flush()
+
+        t0 = time.time()
 
         rrt_star_path_lengths = []
         for i in range(n_sims):
@@ -398,7 +443,7 @@ def main():
                                         map_area = [-2.0, 15.0, -2.0, 15.0], \
                                         max_iter=10_000)
 
-            path_node_list = rrt_dubins.rrt_star_planning(display_map=True)
+            path_node_list = rrt_dubins.rrt_star_planning(display_map=False)
             is_path_valid = check_path(rrt_dubins, path_node_list)
             path = get_path(path_node_list)
 
@@ -414,7 +459,7 @@ def main():
                 final_plot(rrt_dubins, path)
                 return
 
-            sys.stdout.write('\rRRT* Progress: {:.2f}%'.format(i / n_sims * 100))
+            sys.stdout.write(f'\rRRT* Progress: {i / n_sims * 100:.2f}%\tAveraging {i / (time.time() - t0):.2f} it/s')
             sys.stdout.flush()
 
     import pickle as pkl

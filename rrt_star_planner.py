@@ -71,12 +71,10 @@ def rrt_star_planner(rrt_dubins, display_map=False):
 
     exploit_prob = 0.2 # probability of sampling goal itself
     goal_dist = 0.5 # acceptable distance from goal
-    neighbourhood_rad = 5 # neighbourhood radius
+    neighbourhood_rad = 3 # neighbourhood radius
     sqr_rad = neighbourhood_rad**2 # squared neighbourhood radius
-    step_size = 4 * rrt_dubins.curvature # step size for planner
+    step_size = 4 * np.pi * rrt_dubins.curvature # max path length for each step
     sqr_step = step_size**2 # squared step size
-
-    
 
     # LOOP for max iterations
     i = 0
@@ -107,35 +105,47 @@ def rrt_star_planner(rrt_dubins, display_map=False):
                 nearest_node = node
                 shortest_dist = dist
 
-        # truncate by step size
-        if shortest_dist > sqr_step:
-            th = np.arctan2(rand_state[1] - nearest_node.y, rand_state[0] - nearest_node.x)
-            rand_state = [
-                nearest_node.x + step_size * np.cos(th),
-                nearest_node.y + step_size * np.sin(th),
-                rand_state[2]
-            ]
+        # create temporary node at random state, for computing the path prior to truncating
+        temp_new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))
 
-        new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))
+        # check if path from nearest node to temporary node is shorter than the step size
+        if len(temp_new_node.path_x) < step_size/0.1:
+            # if so, then it is the new node that we add
+            new_node = temp_new_node
+        else:
+            # otherwise, create new node at truncated point in path
+            trunc_index = int(step_size/0.1)-1
+            new_node = rrt_dubins.Node(
+                temp_new_node.path_x[trunc_index],
+                temp_new_node.path_y[trunc_index],
+                temp_new_node.path_yaw[trunc_index]
+            )
+            new_node.path_x = temp_new_node.path_x[:trunc_index+1]
+            new_node.path_y = temp_new_node.path_y[:trunc_index+1]
+            new_node.path_yaw = temp_new_node.path_yaw[:trunc_index+1]
+            new_node.parent = nearest_node
+            new_node.cost = nearest_node.cost + step_size
 
         # Check if the path between nearest node and random state has obstacle collision
         if not rrt_dubins.check_collision(new_node):
+            # it has a collision, so continue to next iteration
             continue
 
-        # list of neighbour nodes
+        # list of neighbouring nodes
         neighbourhood = [node for node in rrt_dubins.node_list if node.parent is not None and 
             (node.x - new_node.x)**2 + (node.y - new_node.y)**2 < sqr_rad]
 
         rrt_dubins.node_list.append(new_node) # add new node to list
 
-        # find best neighbour
+        # find best neighbour (the one that will result in the least cost)
+        # initialize with connection to nearest node
         best_cost = rrt_dubins.calc_new_cost(nearest_node, new_node)
         best_neighbour = nearest_node
         for neighbour in neighbourhood:
             # check for collision free path from neighbour to new node
             temp_new_node = rrt_dubins.propogate(neighbour, new_node) # temporary, for collision checking
             if rrt_dubins.check_collision(temp_new_node):
-                # check if it's better to connect to this neighbour
+                # if it's collision free, check if it's better to connect to this neighbour than the current best
                 if temp_new_node.cost < best_cost:
                     best_cost = temp_new_node.cost
                     best_neighbour = neighbour
@@ -144,14 +154,14 @@ def rrt_star_planner(rrt_dubins, display_map=False):
         new_node = rrt_dubins.propogate(best_neighbour, new_node)
         rrt_dubins.node_list[-1] = new_node
 
-        # rewire the tree within neighbourhood
+        # rewire the tree within neighbourhood, checking if the new node is a better parent for any of its neighbours
         for neighbour in neighbourhood:
             # check for collision free path from new node to neighbour
             temp_neighbour = rrt_dubins.propogate(new_node, neighbour) # temporary, for collision checking
             if rrt_dubins.check_collision(temp_neighbour):
                 # check if new node is a better parent for this neighbour
                 if temp_neighbour.cost < neighbour.cost:
-                    # rewire the tree by finding the neighbour and changing its parent
+                    # rewire the neighbour by finding it in the node list and replacing it
                     for i in range(len(rrt_dubins.node_list)):
                         if rrt_dubins.node_list[i] == neighbour:
                             rrt_dubins.node_list[i] = temp_neighbour
