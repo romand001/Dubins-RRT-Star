@@ -68,22 +68,94 @@ def rrt_star_planner(rrt_dubins, display_map=False):
         NOTE: In order for rrt_dubins.draw_graph function to work properly, it is important
         to populate rrt_dubins.nodes_list with all valid RRT nodes.
     """
+
+    exploit_prob = 0.2 # probability of sampling goal itself
+    goal_dist = 0.5 # acceptable distance from goal
+    neighbourhood_rad = 5 # neighbourhood radius
+    sqr_rad = neighbourhood_rad**2 # squared neighbourhood radius
+    step_size = 4 * rrt_dubins.curvature # step size for planner
+    sqr_step = step_size**2 # squared step size
+
+    
+
     # LOOP for max iterations
     i = 0
     while i < rrt_dubins.max_iter:
         i += 1
 
         # Generate a random vehicle state (x, y, yaw)
+        # select goal node with probability of exploit_prob
+        if np.random.rand() < exploit_prob:
+            # exploit goal
+            rand_state = [rrt_dubins.goal.x, rrt_dubins.goal.y, rrt_dubins.goal.yaw]
+        else:
+            # explore random state
+            rand_state = [
+                np.random.uniform(low=rrt_dubins.x_lim[0], high=rrt_dubins.x_lim[1]),
+                np.random.uniform(low=rrt_dubins.y_lim[0], high=rrt_dubins.y_lim[1]),
+                np.random.uniform(low=0, high=2*np.pi)
+            ]
 
-        # Add any addtional code you require for RRT*.
-        
-        # Find an existing node nearest to the random vehicle state
-        new_node = rrt_dubins.propogate(rrt_dubins.Node(0,0,0), rrt_dubins.Node(1,1,0)) #example of usage
+        # connect new state to nearest node
+        shortest_dist = float('inf')
+        nearest_node = None
+        for node in rrt_dubins.node_list:
+            # omit sqrt because it's slow
+            dist = (node.x - rand_state[0])**2 + (node.y - rand_state[1])**2
+
+            if dist < shortest_dist:
+                nearest_node = node
+                shortest_dist = dist
+
+        # truncate by step size
+        if shortest_dist > sqr_step:
+            th = np.arctan2(rand_state[1] - nearest_node.y, rand_state[0] - nearest_node.x)
+            rand_state = [
+                nearest_node.x + step_size * np.cos(th),
+                nearest_node.y + step_size * np.sin(th),
+                rand_state[2]
+            ]
+
+        new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))
 
         # Check if the path between nearest node and random state has obstacle collision
-        # Add the node to nodes_list if it is valid
-        if rrt_dubins.check_collision(new_node):
-            rrt_dubins.node_list.append(new_node) # Storing all valid nodes
+        if not rrt_dubins.check_collision(new_node):
+            continue
+
+        # list of neighbour nodes
+        neighbourhood = [node for node in rrt_dubins.node_list if node.parent is not None and 
+            (node.x - new_node.x)**2 + (node.y - new_node.y)**2 < sqr_rad]
+
+        rrt_dubins.node_list.append(new_node) # add new node to list
+
+        # find best neighbour
+        best_cost = rrt_dubins.calc_new_cost(nearest_node, new_node)
+        best_neighbour = nearest_node
+        for neighbour in neighbourhood:
+            # check for collision free path from neighbour to new node
+            temp_new_node = rrt_dubins.propogate(neighbour, new_node) # temporary, for collision checking
+            if rrt_dubins.check_collision(temp_new_node):
+                # check if it's better to connect to this neighbour
+                if temp_new_node.cost < best_cost:
+                    best_cost = temp_new_node.cost
+                    best_neighbour = neighbour
+
+        # connect best neighbour to new node and replace in node list
+        new_node = rrt_dubins.propogate(best_neighbour, new_node)
+        rrt_dubins.node_list[-1] = new_node
+
+        # rewire the tree within neighbourhood
+        for neighbour in neighbourhood:
+            # check for collision free path from new node to neighbour
+            temp_neighbour = rrt_dubins.propogate(new_node, neighbour) # temporary, for collision checking
+            if rrt_dubins.check_collision(temp_neighbour):
+                # check if new node is a better parent for this neighbour
+                if temp_neighbour.cost < neighbour.cost:
+                    # rewire the tree by finding the neighbour and changing its parent
+                    for i in range(len(rrt_dubins.node_list)):
+                        if rrt_dubins.node_list[i] == neighbour:
+                            rrt_dubins.node_list[i] = temp_neighbour
+                            break
 
         # Draw current view of the map
         # PRESS ESCAPE TO EXIT
@@ -91,12 +163,15 @@ def rrt_star_planner(rrt_dubins, display_map=False):
             rrt_dubins.draw_graph()
 
         # Check if new_node is close to goal
-        if True:
-            print("Iters:", i, ", number of nodes:", len(rrt_dubins.node_list))
+        if rrt_dubins.calc_dist_to_goal(new_node.x, new_node.y) <= goal_dist:
+            # print("Iters:", i, ", number of nodes:", len(rrt_dubins.node_list))
             break
 
     if i == rrt_dubins.max_iter:
         print('reached max iterations')
-
-    # Return path, which is a list of nodes leading to the goal...
-    return None
+        return None
+    else:
+        path = [rrt_dubins.node_list[-1]]
+        while path[0].parent is not None:
+            path.insert(0, path[0].parent)
+        return path

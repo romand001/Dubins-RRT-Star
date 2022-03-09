@@ -17,7 +17,7 @@ try:
 except ImportError:
     raise
 
-show_final_plot = True # TODO: true only in template
+show_final_plot = False # TODO: true only in template
 
 class RRT_dubins_problem():
 
@@ -281,43 +281,168 @@ def get_path(path_node_list):
         path.append([node.x, node.y])
     return path
 
+def get_path_length(path):
+    path_length = 0.0
+    for i in range(len(path) - 1):
+        dx = path[i + 1][0] - path[i][0]
+        dy = path[i + 1][1] - path[i][1]
+        path_length += np.sqrt(dx ** 2 + dy ** 2)
+    return path_length
+
+def final_plot(rrt_dubins, path):
+    rrt_dubins.draw_graph()
+    plt.plot([x for (x, y) in path], [y for (x, y) in path], '-r')
+    plt.grid(True)
+    plt.pause(0.001) # Necessary for macs
+    plt.show()
+
 def main():
     print("Executing: " + __file__)
-    # ====Search Path with RRT====
-    obstacleList = [
-        (5, 5, 1),
-        (3, 6, 2),
-        (3, 8, 2),
-        (3, 10, 2),
-        (7, 5, 2),
-        (9, 5, 2)
-    ]  # [x,y,size(radius)]
 
-    # Set Initial parameters
-    start = [0.0, 0.0, np.deg2rad(-50.0)]
-    goal = [10.0, 10.0, np.deg2rad(50.0)]
+    np.random.seed(42) # set seed for reproducibility
 
-    rrt_dubins = RRT_dubins_problem(start = start, goal = goal, \
-                                    obstacle_list = obstacleList, \
-                                    map_area = [-2.0, 15.0, -2.0, 15.0], \
-                                    max_iter=200)
-    path_node_list = rrt_dubins.rrt_planning(display_map=True)
-    is_path_valid = check_path(rrt_dubins, path_node_list)
-    path = get_path(path_node_list)
+    from_file = False
+    if from_file:
+        import pickle as pkl
+        dict = pkl.load(open('path_lengths.pkl', 'rb'))
+        rrt_path_lengths = dict['rrt']
+        rrt_star_path_lengths = dict['rrt_star']
 
-    if not path:
-        print(f'Test Failed: Given path is empty\n Visualize the path to debug')
-        return
-    if not is_path_valid:
-        print(f'Test Failed: Given path is not valid\n Visualize the path to debug')
-        return
-    # Draw final path
-    if show_final_plot:
-        rrt_dubins.draw_graph()
-        plt.plot([x for (x, y) in path], [y for (x, y) in path], '-r')
-        plt.grid(True)
-        plt.pause(0.001) # Necessary for macs
-        plt.show()
+    else:
+        # ====Search Path with RRT====
+        # obstacleList = [
+        #     (5, 5, 1),
+        #     (3, 6, 2),
+        #     (3, 8, 2),
+        #     (3, 10, 2),
+        #     (7, 5, 2),
+        #     (9, 5, 2)
+        # ]  # [x,y,size(radius)]
+
+        obstacleList = [
+            (-3, 2.5, 1),
+            (-2, 2.5, 1),
+            (-1, 2.5, 1),
+            (0, 2.5, 1),
+            (1, 2.5, 1),
+            (2, 2.5, 1),
+            (3, 2.5, 1),
+            (4, 2.5, 1),
+            (5, 2.5, 1),
+            (6, 2.5, 1),
+            (7, 2.5, 1),
+            (13, -3, 1),
+            (13, -2, 1),
+            (13, -1, 1),
+            (13, 0, 1),
+            (13, 1, 1),
+            (13, 2, 1),
+            (13, 3, 1),
+            (13, 4, 1),
+            (13, 5, 1),
+            (13, 6, 1),
+            (12, 7.5, 1),
+            (11, 7.5, 1),
+            (10, 7.5, 1),
+            (9, 7.5, 1),
+            (8, 7.5, 1),
+            (7, 7.5, 1),
+            (6, 7.5, 1),
+            (5, 7.5, 1),
+            (4, 7.5, 1),
+            (3, 7.5, 1),
+            (2, 7.5, 1),
+            (6, 7.5, 1),
+            (6, 9, 1),
+            (6, 10, 1),
+            (6, 11, 1),
+            (6, 12, 1),
+        ]
+
+        # Set Initial parameters
+        start = [0.0, 0.0, np.deg2rad(-50.0)]
+        goal = [12.0, 12.0, np.deg2rad(50.0)]
+
+        n_sims = 1000
+
+        rrt_path_lengths = []
+        for i in range(n_sims):
+            rrt_dubins = RRT_dubins_problem(start = start, goal = goal, \
+                                        obstacle_list = obstacleList, \
+                                        map_area = [-2.0, 15.0, -2.0, 15.0], \
+                                        max_iter=10_000)
+
+            path_node_list = rrt_dubins.rrt_planning(display_map=True)
+            is_path_valid = check_path(rrt_dubins, path_node_list)
+            path = get_path(path_node_list)
+
+            if is_path_valid and path:
+                rrt_path_lengths.append(get_path_length(path))
+
+            if not path:
+                print(f'Test Failed: Given path is empty\n Visualize the path to debug')
+                final_plot(rrt_dubins, path)
+                return
+            if not is_path_valid:
+                print(f'Test Failed: Given path is not valid\n Visualize the path to debug')
+                final_plot(rrt_dubins, path)
+                return
+
+            sys.stdout.write('\rRRT Progress: {:.2f}%'.format(i / n_sims * 100))
+            sys.stdout.flush()
+
+        rrt_star_path_lengths = []
+        for i in range(n_sims):
+            rrt_dubins = RRT_dubins_problem(start = start, goal = goal, \
+                                        obstacle_list = obstacleList, \
+                                        map_area = [-2.0, 15.0, -2.0, 15.0], \
+                                        max_iter=10_000)
+
+            path_node_list = rrt_dubins.rrt_star_planning(display_map=True)
+            is_path_valid = check_path(rrt_dubins, path_node_list)
+            path = get_path(path_node_list)
+
+            if is_path_valid and path:
+                rrt_star_path_lengths.append(get_path_length(path))
+
+            if not path:
+                print(f'Test Failed: Given path is empty\n Visualize the path to debug')
+                final_plot(rrt_dubins, path)
+                return
+            if not is_path_valid:
+                print(f'Test Failed: Given path is not valid\n Visualize the path to debug')
+                final_plot(rrt_dubins, path)
+                return
+
+            sys.stdout.write('\rRRT* Progress: {:.2f}%'.format(i / n_sims * 100))
+            sys.stdout.flush()
+
+    import pickle as pkl
+    pkl.dump({
+        'rrt': rrt_path_lengths,
+        'rrt_star': rrt_star_path_lengths
+    }, open('path_lengths.pkl', 'wb'))
+
+    # ====Plotting====
+    plt.figure()
+
+    plt.hist(rrt_path_lengths, bins=20, color='blue', density=True, alpha=0.5, label='RRT')
+    plt.axvline(np.mean(rrt_path_lengths), color='blue', linewidth=2)
+
+    plt.hist(rrt_star_path_lengths, bins=20, color='orange', density=True, alpha=0.5, label='RRT*')
+    plt.axvline(np.mean(rrt_star_path_lengths), color='red', linewidth=2)
+
+    plt.text(np.mean(rrt_path_lengths)*1.05, plt.ylim()[1]*0.8, r'$\mu={:.2f}$'.format(np.mean(rrt_path_lengths)))
+    plt.text(np.mean(rrt_star_path_lengths)*1.05, plt.ylim()[1]*0.9, r'$\mu={:.2f}$'.format(np.mean(rrt_star_path_lengths)))
+
+    plt.xlabel('Path Length')
+    plt.ylabel('Probability')
+    plt.legend()
+    plt.title('RRT vs RRT* Path Lengths')
+    plt.grid(True)
+
+    plt.show()
+
 
 if __name__ == '__main__':
     main()
