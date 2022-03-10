@@ -56,31 +56,23 @@ def angle_difference(current, target):
     '''
     return (target - current + 3 * np.pi) % (2*np.pi) - np.pi
 
-def state_difference_sqr(current, target, yaw_weight):
+def nearest(node_coords, rand_state, yaw_weight=1.0):
+    ''' 
+    Find the nearest node to the random state
     '''
-    Compute the squared difference between two states
-    '''
-    return (target[0] - current[0])**2 + (target[1] - current[1])**2 + (yaw_weight * angle_difference(current[2], target[2]))**2
+    node_coords = np.array(node_coords)
+    rand_state = np.array(rand_state).reshape((1,3))
+    diff = node_coords - rand_state # difference between all node coords and new node
+    diff[:,2] = yaw_weight * angle_difference(node_coords[:,2], rand_state[:,2]) # difference between yaw angles
+    diff = np.sum(diff**2, axis=1) # sum of squared differences
+    min_idx = np.argmin(diff) # index of minimum difference
 
-def nearest(rrt_dubins, rand_state, yaw_weight=1.0):
-
-    shortest_dist = float('inf')
-    nearest_node = None
-    for node in rrt_dubins.node_list:
-        dist = state_difference_sqr(
-            (node.x, node.y, node.yaw),
-            (rand_state[0], rand_state[1], rand_state[2]),
-            yaw_weight
-        )
-
-        if dist < shortest_dist:
-            nearest_node = node
-            shortest_dist = dist
-
-    return nearest_node
+    return min_idx
 
 def random_config(x_lim, y_lim, goal, exploit_prob):
-
+    ''' 
+    Sample a random configuration
+    '''
     # select goal node with probability of exploit_prob
     if np.random.rand() < exploit_prob:
         # exploit goal
@@ -101,8 +93,6 @@ def neighbourhood_rad(card_V, gamma):
     INPUTS:
         card_V: cardinality of the vertez set (number of nodes)
         gamma: user-defined parameter, with optimality condition defined in Theorem 38 in RRT* paper
-        eta: user-defined minimum neighbourhood radius, defined based on steering
-    OUTPUTS:
     '''
     d = 3 # dimension of the state space (SE2, so d=3)
 
@@ -127,6 +117,9 @@ def rrt_star_planner(rrt_dubins, display_map=False):
         to populate rrt_dubins.nodes_list with all valid RRT nodes.
     """
 
+    # store node coordinates here for faster distance checking
+    node_coords = [[rrt_dubins.node_list[0].x, rrt_dubins.node_list[0].y, rrt_dubins.node_list[0].yaw]]
+
     d = 3 # dimension of the state space (SE2, so d=3)
     zeta_d = 4/3 * np.pi # volume of the unit d-ball in the d-dimensional Euclidean space
     mu_X_free = 0.8 * (rrt_dubins.x_lim[1] - rrt_dubins.x_lim[0]) \
@@ -138,8 +131,6 @@ def rrt_star_planner(rrt_dubins, display_map=False):
 
     exploit_prob = 0.2 # probability of sampling goal itself
     goal_dist = 0.5 # acceptable distance from goal
-    step_size = 2 * np.pi * rrt_dubins.curvature # max path length for each step
-    sqr_step = step_size**2 # squared step size
 
     # LOOP for max iterations
     i = 0
@@ -150,28 +141,10 @@ def rrt_star_planner(rrt_dubins, display_map=False):
         rand_state = random_config(rrt_dubins.x_lim, rrt_dubins.y_lim, rrt_dubins.goal, exploit_prob)
 
         # Find an existing node nearest to the random vehicle state
-        nearest_node = nearest(rrt_dubins, rand_state, yaw_weight)
+        nearest_node = rrt_dubins.node_list[nearest(node_coords, rand_state, yaw_weight)]
 
         # create temporary node at random state, for computing the path prior to truncating
-        temp_new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))
-
-        # check if path from nearest node to temporary node is shorter than the step size
-        if len(temp_new_node.path_x) < step_size/0.1:
-            # if so, then it is the new node that we add
-            new_node = temp_new_node
-        else:
-            # otherwise, create new node at truncated point in path
-            trunc_index = int(step_size/0.1)-1
-            new_node = rrt_dubins.Node(
-                temp_new_node.path_x[trunc_index],
-                temp_new_node.path_y[trunc_index],
-                temp_new_node.path_yaw[trunc_index]
-            )
-            new_node.path_x = temp_new_node.path_x[:trunc_index+1]
-            new_node.path_y = temp_new_node.path_y[:trunc_index+1]
-            new_node.path_yaw = temp_new_node.path_yaw[:trunc_index+1]
-            new_node.parent = nearest_node
-            new_node.cost = nearest_node.cost + step_size
+        new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))
 
         # Check if the path between nearest node and random state has obstacle collision
         if not rrt_dubins.check_collision(new_node):
@@ -179,6 +152,7 @@ def rrt_star_planner(rrt_dubins, display_map=False):
             continue
 
         rrt_dubins.node_list.append(new_node) # add new node to list
+        node_coords.append([new_node.x, new_node.y, new_node.yaw])
 
         # get squared neighbourhood radius
         sqr_rad = neighbourhood_rad(len(rrt_dubins.node_list), gamma)**2
@@ -190,8 +164,8 @@ def rrt_star_planner(rrt_dubins, display_map=False):
         neighbourhood = [(i, node) for (i, node) in enumerate(rrt_dubins.node_list) if 
             node.parent is not None and 
             not node.is_state_identical(new_node) and
-            state_difference_sqr((node.x, node.y, node.yaw), (rand_state[0], rand_state[1], rand_state[2]), yaw_weight)
-            < sqr_rad]
+            (rand_state[0] - node.x)**2 + (rand_state[1] - node.y)**2 + 
+                (yaw_weight * angle_difference(node.yaw, rand_state[2]))**2 < sqr_rad]
 
         # find best neighbour (the one that will result in the least cost)
         # initialize with connection to nearest node

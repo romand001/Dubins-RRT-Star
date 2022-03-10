@@ -55,31 +55,24 @@ def angle_difference(current, target):
     '''
     return (target - current + 3 * np.pi) % (2*np.pi) - np.pi
 
-def state_difference_sqr(current, target, yaw_weight):
+
+def nearest(node_coords, rand_state, yaw_weight=1.0):
+    ''' 
+    Find the nearest node to the random state
     '''
-    Compute the squared difference between two states
-    '''
-    return (target[0] - current[0])**2 + (target[1] - current[1])**2 + (yaw_weight * angle_difference(current[2], target[2]))**2
+    node_coords = np.array(node_coords)
+    rand_state = np.array(rand_state).reshape((1,3))
+    diff = node_coords - rand_state # difference between all node coords and new node
+    diff[:,2] = angle_difference(node_coords[:,2], rand_state[:,2]) # difference between yaw angles
+    diff = np.sum(diff**2, axis=1) # sum of squared differences
+    min_idx = np.argmin(diff) # index of minimum difference
 
-def nearest(rrt_dubins, rand_state, yaw_weight=1.0):
-
-    shortest_dist = float('inf')
-    nearest_node = None
-    for node in rrt_dubins.node_list:
-        dist = state_difference_sqr(
-            (node.x, node.y, node.yaw),
-            (rand_state[0], rand_state[1], rand_state[2]),
-            yaw_weight
-        )
-
-        if dist < shortest_dist:
-            nearest_node = node
-            shortest_dist = dist
-
-    return nearest_node
+    return min_idx
 
 def random_config(x_lim, y_lim, goal, exploit_prob):
-
+    ''' 
+    Sample a random configuration
+    '''
     # select goal node with probability of exploit_prob
     if np.random.rand() < exploit_prob:
         # exploit goal
@@ -113,12 +106,12 @@ def rrt_planner(rrt_dubins, display_map=False):
         to populate rrt_dubins.nodes_list with all valid RRT nodes.
     """
 
-    exploit_prob = 0.2 # probability of sampling goal itself
-    goal_dist = 0.5 # acceptable distance from goal
-    step_size = 4 * np.pi * rrt_dubins.curvature # max path length for each step
-    sqr_step = step_size**2 # squared step size
+    node_coords = [[rrt_dubins.node_list[0].x, rrt_dubins.node_list[0].y, rrt_dubins.node_list[0].yaw]]
 
     yaw_weight = 4.0 # weight for yaw in distance metric
+
+    exploit_prob = 0.2 # probability of sampling goal itself
+    goal_dist = 0.5 # acceptable distance from goal
 
     # LOOP for max iterations
     i = 0
@@ -129,33 +122,16 @@ def rrt_planner(rrt_dubins, display_map=False):
         rand_state = random_config(rrt_dubins.x_lim, rrt_dubins.y_lim, rrt_dubins.goal, exploit_prob)
 
         # Find an existing node nearest to the random vehicle state
-        nearest_node = nearest(rrt_dubins, rand_state, yaw_weight)
+        nearest_node = rrt_dubins.node_list[nearest(node_coords, rand_state, yaw_weight)]
 
-        # create temporary node at random state, for computing the path prior to truncating
-        temp_new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))
-
-        # check if path from nearest node to temporary node is shorter than the step size
-        if len(temp_new_node.path_x) < step_size/0.1:
-            # if so, then it is the new node that we add
-            new_node = temp_new_node
-        else:
-            # otherwise, create new node at truncated point in path
-            trunc_index = int(step_size/0.1)-1
-            new_node = rrt_dubins.Node(
-                temp_new_node.path_x[trunc_index],
-                temp_new_node.path_y[trunc_index],
-                temp_new_node.path_yaw[trunc_index]
-            )
-            new_node.path_x = temp_new_node.path_x[:trunc_index+1]
-            new_node.path_y = temp_new_node.path_y[:trunc_index+1]
-            new_node.path_yaw = temp_new_node.path_yaw[:trunc_index+1]
-            new_node.parent = nearest_node
-            new_node.cost = nearest_node.cost + step_size
+        # create new node at random state
+        new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))
 
         # Check if the path between nearest node and random state has obstacle collision
         # Add the node to nodes_list if it is valid
         if rrt_dubins.check_collision(new_node):
             rrt_dubins.node_list.append(new_node) # Storing all valid nodes
+            node_coords.append([new_node.x, new_node.y, new_node.yaw])
 
             # Draw current view of the map
             # PRESS ESCAPE TO EXIT
