@@ -49,6 +49,51 @@ DO(s) and DONT(s)
    (since only the planning function will be imported)
 """
 
+def angle_difference(current, target):
+    '''
+    compute the shortest angle difference between two angles
+    '''
+    return (target - current + 3 * np.pi) % (2*np.pi) - np.pi
+
+def state_difference_sqr(current, target, yaw_weight):
+    '''
+    Compute the squared difference between two states
+    '''
+    return (target[0] - current[0])**2 + (target[1] - current[1])**2 + (yaw_weight * angle_difference(current[2], target[2]))**2
+
+def nearest(rrt_dubins, rand_state, yaw_weight=1.0):
+
+    shortest_dist = float('inf')
+    nearest_node = None
+    for node in rrt_dubins.node_list:
+        dist = state_difference_sqr(
+            (node.x, node.y, node.yaw),
+            (rand_state[0], rand_state[1], rand_state[2]),
+            yaw_weight
+        )
+
+        if dist < shortest_dist:
+            nearest_node = node
+            shortest_dist = dist
+
+    return nearest_node
+
+def random_config(x_lim, y_lim, goal, exploit_prob):
+
+    # select goal node with probability of exploit_prob
+    if np.random.rand() < exploit_prob:
+        # exploit goal
+        rand_state = [goal.x, goal.y, goal.yaw]
+    else:
+        # explore random state
+        rand_state = [
+            np.random.uniform(low=x_lim[0], high=x_lim[1]),
+            np.random.uniform(low=y_lim[0], high=y_lim[1]),
+            np.random.uniform(low=0, high=2*np.pi)
+        ]
+
+    return rand_state
+
 def rrt_planner(rrt_dubins, display_map=False):
     """
         Execute RRT planning using Dubins-style paths. Make sure to populate the node_list.
@@ -73,33 +118,18 @@ def rrt_planner(rrt_dubins, display_map=False):
     step_size = 4 * np.pi * rrt_dubins.curvature # max path length for each step
     sqr_step = step_size**2 # squared step size
 
+    yaw_weight = 4.0 # weight for yaw in distance metric
+
     # LOOP for max iterations
     i = 0
     while i < rrt_dubins.max_iter:
         i += 1
 
-        # select goal node with probability of exploit_prob
-        if np.random.rand() < exploit_prob:
-            # exploit goal
-            rand_state = [rrt_dubins.goal.x, rrt_dubins.goal.y, rrt_dubins.goal.yaw]
-        else:
-            # explore random state
-            rand_state = [
-                np.random.uniform(low=rrt_dubins.x_lim[0], high=rrt_dubins.x_lim[1]),
-                np.random.uniform(low=rrt_dubins.y_lim[0], high=rrt_dubins.y_lim[1]),
-                np.random.uniform(low=0, high=2*np.pi)
-            ]
+        # sample random state
+        rand_state = random_config(rrt_dubins.x_lim, rrt_dubins.y_lim, rrt_dubins.goal, exploit_prob)
 
         # Find an existing node nearest to the random vehicle state
-        shortest_dist = float('inf')
-        nearest_node = None
-        for node in rrt_dubins.node_list:
-            # omit sqrt because it's slow
-            dist = (node.x - rand_state[0])**2 + (node.y - rand_state[1])**2
-
-            if dist < shortest_dist:
-                nearest_node = node
-                shortest_dist = dist
+        nearest_node = nearest(rrt_dubins, rand_state, yaw_weight)
 
         # create temporary node at random state, for computing the path prior to truncating
         temp_new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))

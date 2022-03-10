@@ -469,6 +469,8 @@ def main():
     }, open('path_lengths.pkl', 'wb'))
 
     # ====Plotting====
+    print(f'RRT std: {np.std(rrt_path_lengths)}')
+    print(f'RRT* std: {np.std(rrt_star_path_lengths)}')
     plt.figure()
 
     plt.hist(rrt_path_lengths, bins=20, color='blue', density=True, alpha=0.5, label='RRT')
