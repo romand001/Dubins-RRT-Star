@@ -407,7 +407,6 @@ def main():
         n_sims = 1000
 
         t0 = time.time()
-
         rrt_path_lengths = []
         for i in range(n_sims):
             rrt_dubins = RRT_dubins_problem(start = start, goal = goal, \
@@ -434,8 +433,8 @@ def main():
             sys.stdout.write(f'\rRRT Progress: {i / n_sims * 100:.2f}%\tAveraging {i / (time.time() - t0):.2f} it/s')
             sys.stdout.flush()
 
-        t0 = time.time()
 
+        t0 = time.time()
         rrt_star_path_lengths = []
         for i in range(n_sims):
             rrt_dubins = RRT_dubins_problem(start = start, goal = goal, \

@@ -58,7 +58,7 @@ def angle_difference(current, target):
 
 def nearest(node_coords, rand_state, yaw_weight=1.0):
     ''' 
-    Find the nearest node to the random state
+    Find the index of nearest node to the random state
     '''
     node_coords = np.array(node_coords)
     rand_state = np.array(rand_state).reshape((1,3))
@@ -98,6 +98,22 @@ def neighbourhood_rad(card_V, gamma):
 
     return gamma * (np.log(card_V) / card_V)**(1/d)
 
+def incremental_cost(node):
+    '''
+    Compute the incremental cost of a node (cost from parent to this node)
+    '''
+    return node.cost - node.parent.cost
+
+def update_costs_recursive(node_idx, node_list, child_dict, incremental_costs):
+    '''
+    Recursively update the costs of all children of a node
+    '''
+
+    node_list[node_idx].cost = node_list[node_idx].parent.cost + incremental_costs[node_idx]
+
+    for child_idx in child_dict[node_idx]:
+        update_costs_recursive(child_idx, node_list, child_dict, incremental_costs)
+
 def rrt_star_planner(rrt_dubins, display_map=False):
     """
         Execute RRT* planning using Dubins-style paths. Make sure to populate the node_list.
@@ -116,6 +132,14 @@ def rrt_star_planner(rrt_dubins, display_map=False):
         NOTE: In order for rrt_dubins.draw_graph function to work properly, it is important
         to populate rrt_dubins.nodes_list with all valid RRT nodes.
     """
+
+    # maintain child and parent relationships in dictionaries for faster lookup
+    child_dict = {0: []}
+    parent_dict = {0: None}
+
+    # maintain incremental cost of each node (cost from parent to this node), same indexing as node_list
+    # this is used to propagate improved costs to children after rewiring
+    incremental_costs = [0]
 
     # store node coordinates here for faster distance checking
     node_coords = [[rrt_dubins.node_list[0].x, rrt_dubins.node_list[0].y, rrt_dubins.node_list[0].yaw]]
@@ -137,13 +161,18 @@ def rrt_star_planner(rrt_dubins, display_map=False):
     while i < rrt_dubins.max_iter:
         i += 1
 
+        ''' GET RANDOM STATE '''
+
         # sample random state
         rand_state = random_config(rrt_dubins.x_lim, rrt_dubins.y_lim, rrt_dubins.goal, exploit_prob)
 
-        # Find an existing node nearest to the random vehicle state
-        nearest_node = rrt_dubins.node_list[nearest(node_coords, rand_state, yaw_weight)]
+        ''' CREATE NEW NODE AT RANDOM STATE (IF POSSIBLE), AND CONNECT IT TO NEAREST NODE '''
 
-        # create temporary node at random state, for computing the path prior to truncating
+        # Find an existing node nearest to the random vehicle state
+        nearest_idx = nearest(node_coords, rand_state, yaw_weight)
+        nearest_node = rrt_dubins.node_list[nearest_idx]
+
+        # create temporary node at random state, for collision checking
         new_node = rrt_dubins.propogate(nearest_node, rrt_dubins.Node(*rand_state))
 
         # Check if the path between nearest node and random state has obstacle collision
@@ -151,46 +180,81 @@ def rrt_star_planner(rrt_dubins, display_map=False):
             # it has a collision, so continue to next iteration
             continue
 
+        # add new node and take care of data structures accordingly
         rrt_dubins.node_list.append(new_node) # add new node to list
-        node_coords.append([new_node.x, new_node.y, new_node.yaw])
+        new_idx = len(rrt_dubins.node_list) - 1 # index of new node
+        node_coords.append([new_node.x, new_node.y, new_node.yaw]) # add node coordinates for distance evaluation
+        child_dict[new_idx] = [] # initialize child list for new node
+        incremental_costs.append(incremental_cost(new_node)) # add incremental cost to list
+
+        # deal with child and parent relationships after adding the new node
+        child_dict.setdefault(nearest_idx, []).append(new_idx) # add new node as child of nearest node
+        parent_dict[new_idx] = nearest_idx # add nearest node as parent of new node
+
+        ''' GET NEIGHBOURHOOD '''
 
         # get squared neighbourhood radius
         sqr_rad = neighbourhood_rad(len(rrt_dubins.node_list), gamma)**2
         # print(f'Neighbourhood radius: {np.sqrt(sqr_rad)}m')
 
         # get neighbouring nodes within the neighbourhood radius
-        # list of tuples: (index in node list, neighbour)
-        # we are storing the index for each neighbour as well to reduce complexity when rewiring
+        # produces list of tuples: (index in rrt_dubins.node_list, neighbour)
+        # we are storing the index for each neighbour, so we can easily access it in main node list
         neighbourhood = [(i, node) for (i, node) in enumerate(rrt_dubins.node_list) if 
-            node.parent is not None and 
-            not node.is_state_identical(new_node) and
+            node.parent is not None and i != new_idx and # don't choose root node or new node
             (rand_state[0] - node.x)**2 + (rand_state[1] - node.y)**2 + 
                 (yaw_weight * angle_difference(node.yaw, rand_state[2]))**2 < sqr_rad]
+
+        ''' RECONNECT NEW NODE TO BEST NEIGHBOUR '''
 
         # find best neighbour (the one that will result in the least cost)
         # initialize with connection to nearest node
         best_cost = rrt_dubins.calc_new_cost(nearest_node, new_node)
         best_neighbour = nearest_node
-        for _, neighbour in neighbourhood:
+        best_neighbour_idx = nearest_idx
+        for neighbour_idx, neighbour in neighbourhood:
             # check for collision free path from neighbour to new node
             temp_new_node = rrt_dubins.propogate(neighbour, new_node) # temporary, for collision checking and cost calculation
-            if rrt_dubins.check_collision(temp_new_node):
-                # if it's collision free, check if it's better to connect to this neighbour than the current best
-                if temp_new_node.cost < best_cost:
-                    best_cost = temp_new_node.cost
-                    best_neighbour = neighbour
+            if temp_new_node.cost < best_cost and rrt_dubins.check_collision(temp_new_node):
+                # if it's better cost and collision free, update best neighbour
+                best_cost = temp_new_node.cost
+                best_neighbour = neighbour
+                best_neighbour_idx = neighbour_idx
 
-        # connect best neighbour to new node and replace in node list
+        # connect new node as child of best neighbour and replace in node list
         new_node = rrt_dubins.propogate(best_neighbour, new_node)
         rrt_dubins.node_list[-1] = new_node
+        incremental_costs[-1] = incremental_cost(new_node) # update incremental cost from best neighbour
+
+        # deal with child and parent relationships after reconnecting new node to the best neighbour instead of nearest node
+        child_dict[nearest_idx].pop() # remove new node from children list of nearest node
+        child_dict.setdefault(best_neighbour_idx, []).append(new_idx) # add new node to children list of best neighbour
+        parent_dict[new_idx] = best_neighbour_idx # set parent of new node to be the best neighbour
+
+        ''' REWIRE (CONNECT NEIGHBOURS THROUGH NEW NODE IF IT'S BETTER) '''
 
         # rewire the tree within neighbourhood, checking if the new node is a better parent for any of its neighbours
-        for i, neighbour in neighbourhood:
+        for neighbour_idx, neighbour in neighbourhood:
             # check for collision free path from new node to neighbour, and if the cost is better than the current
             temp_neighbour = rrt_dubins.propogate(new_node, neighbour) # temporary, for collision checking and cost calculation
             if temp_neighbour.cost < neighbour.cost and rrt_dubins.check_collision(temp_neighbour):
+                
                 # rewire the neighbour by replacing it in the node list
-                rrt_dubins.node_list[i] = temp_neighbour
+                rrt_dubins.node_list[neighbour_idx] = temp_neighbour
+                # neighbour's children must have their parent set to this new node object (temp_neighbour)
+                for child_idx in child_dict[neighbour_idx]:
+                    rrt_dubins.node_list[child_idx].parent = temp_neighbour
+
+                incremental_costs[neighbour_idx] = incremental_cost(temp_neighbour) # update incremental cost from new node
+
+                # deal with child and parent relationships after rewiring
+                old_parent_idx = parent_dict[neighbour_idx] # get index of neighbour's old parent
+                child_dict[old_parent_idx].remove(neighbour_idx) # remove rewired neighbour from children list of its old parent
+                child_dict.setdefault(new_idx, []).append(neighbour_idx) # add rewired neighbour to children list of new node
+                parent_dict[neighbour_idx] = new_idx # set parent of rewired neighbour to be new node
+
+                # recursively update costs of children starting from rewired neighbour
+                update_costs_recursive(neighbour_idx, rrt_dubins.node_list, child_dict, incremental_costs)
 
         # Draw current view of the map
         # PRESS ESCAPE TO EXIT
